@@ -182,45 +182,6 @@ fun HomeScreen(
                 }
             }
 
-            // Trusted-network paused banner (#197) — distinguishes auto-pause
-            // from a plain "Unprotected" state so the user knows why it's off.
-            if (showTrustedPause) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Wifi,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = stringResource(R.string.trusted_networks_paused_title),
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                            Text(
-                                text = if (pausedTrustedSsid.isNotEmpty())
-                                    stringResource(R.string.trusted_networks_paused_text, pausedTrustedSsid)
-                                else stringResource(R.string.trusted_networks_paused_text_generic),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                        }
-                    }
-                }
-            }
-
             // Status text
             Text(
                 text = when {
@@ -249,9 +210,7 @@ fun HomeScreen(
                     vpnStopping -> stringResource(if (isRootMode) R.string.home_disconnecting_desc_root else R.string.home_disconnecting_desc)
                     vpnConnecting -> stringResource(if (isRootMode) R.string.home_connecting_desc_root else R.string.home_connecting_desc)
                     vpnEnabled -> stringResource(R.string.home_protected_desc)
-                    showTrustedPause -> if (pausedTrustedSsid.isNotEmpty())
-                        stringResource(R.string.trusted_networks_paused_text, pausedTrustedSsid)
-                    else stringResource(R.string.trusted_networks_paused_text_generic)
+                    showTrustedPause -> stringResource(R.string.home_paused_trusted_short)
                     else -> stringResource(R.string.home_unprotected_desc)
                 },
                 style = MaterialTheme.typography.bodyMedium,
@@ -261,22 +220,47 @@ fun HomeScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.primaryContainer)
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    text = when (routingMode) {
-                        AppPreferences.ROUTING_MODE_ROOT -> "Root Proxy Mode"
-                        AppPreferences.ROUTING_MODE_WIREGUARD -> "WireGuard Mode"
-                        else -> "Local VPN Mode"
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    fontWeight = FontWeight.SemiBold
-                )
+            if (showTrustedPause) {
+                // Trusted-network pill: shows which Wi-Fi paused BlockAds.
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.secondaryContainer)
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Wifi,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = pausedTrustedSsid.ifEmpty { stringResource(R.string.trusted_networks_paused_title) },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = when (routingMode) {
+                            AppPreferences.ROUTING_MODE_ROOT -> "Root Proxy Mode"
+                            AppPreferences.ROUTING_MODE_WIREGUARD -> "WireGuard Mode"
+                            else -> "Local VPN Mode"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))

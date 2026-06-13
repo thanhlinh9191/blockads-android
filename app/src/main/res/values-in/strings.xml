@@ -523,4 +523,5 @@
     <string name="trusted_networks_paused_text">BlockAds dijeda di "%1$s" — otomatis aktif lagi saat Anda pergi.</string>
     <string name="trusted_networks_paused_text_generic">BlockAds dijeda di Wi-Fi tepercaya — aktif lagi saat Anda pergi.</string>
     <string name="status_paused">Dijeda</string>
+    <string name="home_paused_trusted_short">Dijeda di jaringan tepercaya</string>
 </resources>

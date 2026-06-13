@@ -523,4 +523,5 @@
     <string name="trusted_networks_paused_text">BlockAds ist in "%1$s" pausiert – wird beim Verlassen automatisch fortgesetzt.</string>
     <string name="trusted_networks_paused_text_generic">BlockAds ist in einem vertrauenswürdigen WLAN pausiert – wird beim Verlassen fortgesetzt.</string>
     <string name="status_paused">Pausiert</string>
+    <string name="home_paused_trusted_short">Pausiert in vertrauenswürdigem Netzwerk</string>
 </resources>

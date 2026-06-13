@@ -523,4 +523,5 @@
     <string name="trusted_networks_paused_text">BlockAds หยุดชั่วคราวบน "%1$s" — จะกลับมาทำงานอัตโนมัติเมื่อคุณออกจากเครือข่ายนี้</string>
     <string name="trusted_networks_paused_text_generic">BlockAds หยุดชั่วคราวบน Wi-Fi ที่เชื่อถือได้ — จะกลับมาทำงานเมื่อคุณออกไป</string>
     <string name="status_paused">หยุดชั่วคราว</string>
+    <string name="home_paused_trusted_short">หยุดชั่วคราวบนเครือข่ายที่เชื่อถือได้</string>
 </resources>

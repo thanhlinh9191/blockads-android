@@ -523,4 +523,5 @@
     <string name="trusted_networks_paused_text">BlockAds jest wstrzymany w sieci "%1$s" — wznowi się automatycznie po jej opuszczeniu.</string>
     <string name="trusted_networks_paused_text_generic">BlockAds jest wstrzymany w zaufanej sieci Wi-Fi — wznowi się po opuszczeniu.</string>
     <string name="status_paused">Wstrzymano</string>
+    <string name="home_paused_trusted_short">Wstrzymano w zaufanej sieci</string>
 </resources>

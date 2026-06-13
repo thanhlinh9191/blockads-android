@@ -544,4 +544,5 @@ Desteklenen formatlar:
     <string name="trusted_networks_paused_text">BlockAds "%1$s" ağında duraklatıldı — bu ağdan ayrıldığınızda otomatik olarak devam eder.</string>
     <string name="trusted_networks_paused_text_generic">BlockAds güvenilir bir Wi-Fi ağında duraklatıldı — ayrıldığınızda devam eder.</string>
     <string name="status_paused">Duraklatıldı</string>
+    <string name="home_paused_trusted_short">Güvenilir ağda duraklatıldı</string>
 </resources>

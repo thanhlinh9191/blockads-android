@@ -523,4 +523,5 @@
     <string name="trusted_networks_paused_text">BlockAds は「%1$s」で一時停止中です。離れると自動的に再開します。</string>
     <string name="trusted_networks_paused_text_generic">BlockAds は信頼する Wi-Fi で一時停止中です。離れると再開します。</string>
     <string name="status_paused">一時停止中</string>
+    <string name="home_paused_trusted_short">信頼するネットワークで一時停止中</string>
 </resources>

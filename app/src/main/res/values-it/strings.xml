@@ -523,4 +523,5 @@
     <string name="trusted_networks_paused_text">BlockAds è in pausa su "%1$s" — riprende automaticamente quando esci da questa rete.</string>
     <string name="trusted_networks_paused_text_generic">BlockAds è in pausa su una rete Wi-Fi attendibile — riprende quando esci.</string>
     <string name="status_paused">In pausa</string>
+    <string name="home_paused_trusted_short">In pausa su rete attendibile</string>
 </resources>
