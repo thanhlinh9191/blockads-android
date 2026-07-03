@@ -94,6 +94,13 @@ android {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
+        debug {
+            // Distinct applicationId so the debug test build installs
+            // alongside a release install (different signature) without
+            // wiping the user's configured app. FileProvider authority is
+            // ${applicationId}.fileprovider, so it stays unique too.
+            applicationIdSuffix = ".debug"
+        }
     }
 
     compileOptions {

@@ -103,6 +103,15 @@ class AdBlockVpnService : VpnService() {
         const val ACTION_RESTART = "app.pwhs.blockads.RESTART_VPN"
         const val EXTRA_STARTED_FROM_BOOT = "extra_started_from_boot"
 
+        // When a VPN session is (re)established, Android revokes the
+        // previous session and delivers onRevoke() to the (single) service
+        // instance a few seconds later. Because the Go engine + userspace
+        // stack are shared across sessions, honouring that stale revoke
+        // tears down the freshly-established session and blackholes all
+        // traffic (fatal for full-tunnel HTTPS filtering). Ignore any
+        // revoke that arrives within this grace window after an establish.
+        private const val REVOKE_GRACE_MS = 10_000L
+
         // ── Reactive VPN state ────────────────────────────────────────
         private val _state = MutableStateFlow(VpnState.STOPPED)
 
@@ -172,6 +181,9 @@ class AdBlockVpnService : VpnService() {
     }
 
     private var vpnInterface: ParcelFileDescriptor? = null
+    // elapsedRealtime() of the last successful builder.establish(); used to
+    // filter out the stale onRevoke of a superseded session (see REVOKE_GRACE_MS).
+    @Volatile private var lastVpnEstablishedAt: Long = 0L
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var filterRepo: FilterListRepository
     private lateinit var appPrefs: AppPreferences
@@ -662,14 +674,34 @@ class AdBlockVpnService : VpnService() {
                 // leak is instead surfaced to the user via a warning
                 // (see NetworkMonitor.isPrivateDnsActive); a proper capture
                 // needs engine-level DoT handling (tracked in #145).
+                //
+                // NOTE (full-tunnel HTTPS filtering, WIP): routing 0.0.0.0/0
+                // here to feed the userspace stack was tried and blackholed
+                // all non-DNS traffic on-device — the parallel gVisor stack
+                // path does not yet reliably relay general TCP flows (it was
+                // only ever exercised for the local asset host). Kept on the
+                // narrow asset route until the stack-forwarding path is
+                // proven with the diagnostics added in startTcpStackParallel.
 
                 if (httpsFilteringEnabled) {
-                    // Route the synthetic IP range used for the local
-                    // asset host (engine maps local.pwhs.app → 198.51.100.1)
-                    // so the browser's request enters the TUN and the
-                    // userspace stack can serve cosmetic.css / scriptlets.js
-                    // / sl-<host>.js from memory. RFC 5737 documentation
-                    // prefix — never collides with real Internet traffic.
+                    // FULL-TUNNEL CAPTURE — PARKED (reverted to narrow route).
+                    // Routing 0.0.0.0/0 here to feed the userspace stack works
+                    // for a short window but WEDGES under real browser load:
+                    // the parallel-stack bridge
+                    // (TUN→interceptor→pipe→gVisor→pipe→writer→TUN) hits a
+                    // backpressure deadlock (inbound queue fills, all traffic
+                    // stalls, even passthrough dies) once a page opens many
+                    // concurrent flows. Robust full-network capture needs the
+                    // stack to read the TUN directly rather than via the pipe.
+                    // Verified fixes that DO hold and stay in place: v4-only
+                    // routing, DoT(853) fast-close, IPv6-not-routed, and the
+                    // onRevoke supersession guard.
+                    //
+                    // Until the stack is re-architected, keep the narrow
+                    // asset-host route: browser HTTPS egresses directly
+                    // (unfiltered) so the device stays fully usable, and the
+                    // stack only serves local.pwhs.app (cosmetic.css /
+                    // scriptlets) from memory. RFC 5737 documentation prefix.
                     b.addRoute("198.51.100.0", 24)
                 }
                 b
@@ -721,6 +753,7 @@ class AdBlockVpnService : VpnService() {
                 Timber.e("Failed to establish VPN interface")
                 return false
             }
+            lastVpnEstablishedAt = android.os.SystemClock.elapsedRealtime()
 
             true
         } catch (e: Exception) {
@@ -898,6 +931,18 @@ class AdBlockVpnService : VpnService() {
     }
 
     override fun onRevoke() {
+        // A revoke arriving right after we (re)established a session is the
+        // OLD session being superseded (e.g. during a settings restart), not
+        // a genuine user/system revoke. Honouring it would call stopVpn() →
+        // engine.stop(), tearing down the freshly-established session (the Go
+        // engine/stack are shared across sessions) and blackholing all
+        // traffic. Ignore it; the new session stays up.
+        val sinceEstablish = android.os.SystemClock.elapsedRealtime() - lastVpnEstablishedAt
+        if (sinceEstablish in 0 until REVOKE_GRACE_MS) {
+            Timber.w("Ignoring stale onRevoke (${sinceEstablish}ms after establish — superseded session)")
+            return
+        }
+
         Timber.w("VPN revoked by system or user")
         // Update preferences to reflect VPN is no longer enabled
         // Use a non-cancellable context to ensure preference is updated

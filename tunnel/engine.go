@@ -1057,7 +1057,13 @@ func (e *Engine) StartStackMitm(certDir string) string {
 	if e.stackMitmFilter == nil {
 		e.stackMitmFilter = NewMitmFilter()
 	}
+	filter := e.stackMitmFilter
 	e.mu.Unlock()
+
+	// Persist the auto-blacklist alongside the CA so cert-pinned / EV
+	// domains discovered in one session are remembered in the next —
+	// otherwise every pinned site breaks once per app launch.
+	filter.LoadPersistentBlacklist(filepath.Join(certDir, "mitm_blacklist.txt"))
 
 	return certMgr.GetCACertPEM()
 }
@@ -1127,12 +1133,23 @@ func (e *Engine) startTcpStackParallel() error {
 	if certMgr != nil && filter != nil {
 		// Phase D path — MITM handler applies the full filtering flow.
 		stack.SetTcpHandler(newMitmTcpHandler(certMgr, filter, e, uidr, protectFn))
-		logf("TcpIpStack: MITM handler registered")
+		// Drop browser QUIC so HTTP/3 can't bypass the TCP-TLS MITM.
+		stack.SetUdpHandler(newMitmUdpHandler(filter, uidr, protectFn))
+		logf("TcpIpStack: MITM handler registered (TCP + QUIC-suppressing UDP)")
 	} else {
 		// Phase C default — direct-dial passthrough, no MITM.
 		stack.SetTcpHandler(newProtectedTcpHandler(uidr, protectFn))
+		stack.SetUdpHandler(newProtectedUdpHandler(uidr, protectFn))
 	}
-	stack.SetUdpHandler(newProtectedUdpHandler(uidr, protectFn))
+
+	// Reset the interceptor's per-session diagnostic counters so the
+	// "pushed packet #N to stack" / "pipe nil" logs fire fresh on every
+	// (re)start — essential for diagnosing whether non-DNS traffic
+	// actually reaches the stack under full-tunnel routing.
+	e.interceptor.stackPacketsPushed.Store(0)
+	e.interceptor.stackPipeNilDrops.Store(0)
+	logf("TcpIpStack: starting parallel path (mtu=%d, mitm=%t, protectFn=%t)",
+		mtu, certMgr != nil && filter != nil, protectFn != nil)
 
 	if err := stack.Start(pipe, mtu); err != nil {
 		e.mu.Lock()
@@ -1182,6 +1199,9 @@ func (e *Engine) runTcpStackOutboundWriter(p *packetPipe) {
 			return
 		}
 		written++
+		if written <= 10 {
+			logf("TcpIpStack: outbound→TUN write #%d (size=%d) [response path alive]", written, len(pkt))
+		}
 	}
 }
 
