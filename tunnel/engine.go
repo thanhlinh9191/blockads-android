@@ -648,6 +648,24 @@ func (e *Engine) serveDNS(w dns.ResponseWriter, r *dns.Msg, appOverride string) 
 	domain := strings.ToLower(r.Question[0].Name)
 	domain = strings.TrimSuffix(domain, ".")
 	queryType := r.Question[0].Qtype
+
+	// Local asset host: synthesize a response with a routable IP from
+	// the RFC 5737 documentation range so the browser can SYN to it
+	// and have the packet enter our TUN.
+	if domain == LocalAssetHost {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		if queryType == dns.TypeA {
+			rr, _ := dns.NewRR(fmt.Sprintf("%s 300 IN A %s", r.Question[0].Name, localAssetSynthIP.String()))
+			m.Answer = append(m.Answer, rr)
+		} else if queryType == dns.TypeAAAA {
+			// No IPv6 for local asset host; return empty NOERROR
+		}
+		_ = w.WriteMsg(m)
+		e.totalQueries.Add(1)
+		return
+	}
+
 	appName := "RootProxy"
 	// Try to resolve the real app name from the source port of the incoming connection.
 	// iptables REDIRECT preserves the original source port, so we can look up the UID
