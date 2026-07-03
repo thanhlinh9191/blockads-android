@@ -44,7 +44,7 @@ fun ProtectionSection(
     networkSwitchDelaySec: Int,
     safeSearchEnabled: Boolean,
     youtubeRestrictedMode: Boolean,
-    fullTunnelEnabled: Boolean,
+
     dnsResponseType: String,
     upstreamDNS: String,
     onSetAutoReconnect: (Boolean) -> Unit,
@@ -52,7 +52,7 @@ fun ProtectionSection(
     onSetNetworkSwitchDelayEnabled: (Boolean) -> Unit,
     onSetNetworkSwitchDelaySec: (Int) -> Unit,
     onSetSafeSearchEnabled: (Boolean) -> Unit,
-    onSetFullTunnelEnabled: (Boolean) -> Unit,
+
     onSetYoutubeRestrictedMode: (Boolean) -> Unit,
     onShowDnsResponseTypeDialog: () -> Unit,
     onNavigateToDNSProvider: () -> Unit,
@@ -133,18 +133,7 @@ fun ProtectionSection(
                         }
                     }
                 }
-                // Full-tunnel mode
-                HorizontalDivider(
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f)
-                )
-                SettingsToggleItem(
-                    icon = Icons.Default.Lan,
-                    title = stringResource(R.string.settings_full_tunnel),
-                    subtitle = stringResource(R.string.settings_full_tunnel_desc),
-                    isChecked = fullTunnelEnabled,
-                    onCheckedChange = onSetFullTunnelEnabled
-                )
+
                 // Safe Search
                 HorizontalDivider(
                     modifier = Modifier.padding(horizontal = 16.dp),

@@ -408,10 +408,8 @@ class AdBlockVpnService : VpnService() {
 
                 // Load HTTPS Filtering setting
                 val httpsFilteringEnabled = appPrefs.getHttpsFilteringEnabledSnapshot()
-                // Full-tunnel mode. HTTPS filtering implies full-tunnel (it must
-                // capture browser traffic); full-tunnel can also be on by itself.
-                val fullTunnelEnabled =
-                    appPrefs.getFullTunnelEnabledSnapshot() || httpsFilteringEnabled
+                // Full-tunnel mode is always enabled: all traffic is routed
+                // through the direct-TUN engine (StartFull).
 
 
 
@@ -429,7 +427,7 @@ class AdBlockVpnService : VpnService() {
 
                 var vpnEstablished = false
                 while (!vpnEstablished && retryManager.shouldRetry()) {
-                    vpnEstablished = establishVpn(whitelistedApps, fullTunnelEnabled)
+                    vpnEstablished = establishVpn(whitelistedApps)
 
                     if (!vpnEstablished && retryManager.shouldRetry()) {
                         Timber
@@ -555,7 +553,6 @@ class AdBlockVpnService : VpnService() {
                         selectedBrowsers = selectedBrowsers,
                         certDir = certDir,
                         filterHttp3 = filterHttp3,
-                        fullTunnelEnabled = fullTunnelEnabled,
                         socketProtector = { fd ->
                             try {
                                 protect(fd)
@@ -575,8 +572,7 @@ class AdBlockVpnService : VpnService() {
     }
 
     private fun establishVpn(
-        whitelistedApps: Set<String>,
-        fullTunnel: Boolean
+        whitelistedApps: Set<String>
     ): Boolean {
         // First check if the system still grants us the VPN permission.
         if (VpnService.prepare(this) != null) {
@@ -660,7 +656,7 @@ class AdBlockVpnService : VpnService() {
                 b
             } else {
                 // Direct mode — DNS + (optional) HTTPS local asset host.
-                Timber.d("Establishing VPN in direct mode (fullTunnel=$fullTunnel)")
+                Timber.d("Establishing VPN in direct mode (fullTunnel=true)")
                 val b = Builder()
                     .setSession("BlockAds")
                     .addAddress("10.0.0.2", 32)
@@ -690,25 +686,23 @@ class AdBlockVpnService : VpnService() {
                 // narrow asset route until the stack-forwarding path is
                 // proven with the diagnostics added in startTcpStackParallel.
 
-                if (fullTunnel) {
-                    // Full-network capture (IPv4). This feeds the DEDICATED
-                    // full-tunnel data path (GoTunnelAdapter → engine.startFull),
-                    // where gVisor reads the TUN directly — no DnsInterceptor/
-                    // packetPipe bridge, so it doesn't deadlock under browser
-                    // load like the legacy parallel-stack path did. The stack
-                    // MITMs browser TCP, answers DNS on :53, and passes
-                    // everything else through a socket-protected dialer.
-                    //
-                    // IPv6 is deliberately NOT routed (no `::/0`): the Go
-                    // process usually has no working v6 route on mobile, so
-                    // tunnelled v6 would blackhole. v6 egresses directly
-                    // (unfiltered); browsers fall back to v4 for filtered
-                    // sites. DoT(853) is closed fast in the stack handler to
-                    // force plaintext DNS on 53. Private/loopback dests are
-                    // short-circuited to a direct dial by the handler's
-                    // Gate 0, so LAN stays reachable without an exclude route.
-                    b.addRoute("0.0.0.0", 0)
-                }
+                // Full-network capture (IPv4) — always enabled. This feeds
+                // the DEDICATED full-tunnel data path (GoTunnelAdapter →
+                // engine.startFull), where gVisor reads the TUN directly — no
+                // DnsInterceptor/packetPipe bridge, so it doesn't deadlock
+                // under browser load like the legacy parallel-stack path did.
+                // The stack MITMs browser TCP, answers DNS on :53, and passes
+                // everything else through a socket-protected dialer.
+                //
+                // IPv6 is deliberately NOT routed (no `::/0`): the Go
+                // process usually has no working v6 route on mobile, so
+                // tunnelled v6 would blackhole. v6 egresses directly
+                // (unfiltered); browsers fall back to v4 for filtered
+                // sites. DoT(853) is closed fast in the stack handler to
+                // force plaintext DNS on 53. Private/loopback dests are
+                // short-circuited to a direct dial by the handler's
+                // Gate 0, so LAN stays reachable without an exclude route.
+                b.addRoute("0.0.0.0", 0)
                 b
             }
 

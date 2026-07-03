@@ -101,8 +101,6 @@ class SettingsViewModel(
     val safeSearchEnabled: StateFlow<Boolean> = appPrefs.safeSearchEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    val fullTunnelEnabled: StateFlow<Boolean> = appPrefs.fullTunnelEnabled
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val youtubeRestrictedMode: StateFlow<Boolean> = appPrefs.youtubeRestrictedMode
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -257,17 +255,6 @@ class SettingsViewModel(
         }
     }
 
-    fun setFullTunnelEnabled(enabled: Boolean) {
-        viewModelScope.launch {
-            appPrefs.setFullTunnelEnabled(enabled)
-            // Full-tunnel and WireGuard are mutually exclusive (the direct-TUN
-            // engine dials destinations itself, bypassing the WG tunnel).
-            if (enabled && appPrefs.getRoutingModeSnapshot() == AppPreferences.ROUTING_MODE_WIREGUARD) {
-                appPrefs.setRoutingMode(AppPreferences.ROUTING_MODE_DIRECT)
-            }
-            requestVpnRestart()
-        }
-    }
 
     fun setYoutubeRestrictedMode(enabled: Boolean) {
         viewModelScope.launch {

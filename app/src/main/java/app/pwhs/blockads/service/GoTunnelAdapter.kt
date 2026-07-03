@@ -274,7 +274,6 @@ class GoTunnelAdapter(
         selectedBrowsers: Set<String> = emptySet(),
         certDir: String = "",
         filterHttp3: Boolean = false,
-        fullTunnelEnabled: Boolean = false,
         socketProtector: ((Int) -> Boolean)? = null
     ) {
         if (isRunning) return
@@ -341,24 +340,22 @@ class GoTunnelAdapter(
             socketProtector?.invoke(fd.toInt()) ?: false
         }
 
-        // Start the Go engine (this blocks the thread).
-        //
-        // Engine selection is by TUNNEL MODE, not by HTTPS:
-        //   • Full-tunnel (explicit toggle) OR HTTPS filtering → StartFull
-        //     (dedicated direct-TUN engine; gVisor reads the TUN directly,
-        //     no DnsInterceptor/packetPipe bridge → no under-load wedge).
-        //     HTTPS filtering merely adds the MITM layer inside it
-        //     (startStackMitm above); without it, full-tunnel still does
-        //     all-app DNS filter + per-app firewall + protected passthrough.
-        //   • Otherwise → legacy Start (split-tunnel DNS-only / WireGuard).
-        val useFullTunnel = fullTunnelEnabled || (httpsFilteringEnabled && certDir.isNotEmpty())
-        if (useFullTunnel) {
+        // Engine selection:
+        //   • WireGuard → engine.start (WG handles its own full-route
+        //     tunneling; setup happens atomically inside Go before any
+        //     packets are read).
+        //   • Otherwise → engine.startFull (full-tunnel direct-TUN engine;
+        //     gVisor reads TUN directly — no DnsInterceptor/packetPipe
+        //     bridge, so it doesn't deadlock under browser load). HTTPS
+        //     MITM is layered on top when startStackMitm was called above;
+        //     without it, full-tunnel still does all-app DNS filter +
+        //     per-app firewall + protected passthrough.
+        if (wgConfigJson.isNotEmpty()) {
+            Timber.d("Starting Go tunnel engine in WIREGUARD mode (fd=$fd)")
+            engine.start(fd.toLong(), protector, wgConfigJson)
+        } else {
             Timber.d("Starting Go tunnel engine in FULL-TUNNEL mode (fd=$fd, mitm=${httpsFilteringEnabled && certDir.isNotEmpty()})")
             engine.startFull(fd.toLong(), protector)
-        } else {
-            // Legacy split-tunnel (DNS-only) / WireGuard path — unchanged.
-            // WireGuard setup happens atomically inside Go before any packets are read.
-            engine.start(fd.toLong(), protector, wgConfigJson)
         }
     }
 
