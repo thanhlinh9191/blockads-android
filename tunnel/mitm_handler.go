@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/xjasonlyu/tun2socks/v2/core/adapter"
@@ -65,6 +64,13 @@ func newMitmTcpHandler(
 		flow := tcpFlowID(conn)
 		uid := resolveFlowUID(uidr, ProtocolTCP, flow)
 
+		// Connection log (full-tunnel): surface every flow with its owning
+		// app + destination, so apps that barely use DNS (Telegram/WhatsApp
+		// → hard-coded IPs) are visible in the log screen.
+		if eng, ok := blocker.(*Engine); ok {
+			eng.logConnection(flow, ProtocolTCP)
+		}
+
 		// Gate -1 — DNS-over-TLS (port 853). Under full-tunnel routing the
 		// system's Private DNS resolver probes DoT against our fake DNS
 		// server (10.0.0.1 / fd00::1), which isn't a real host — the dial
@@ -73,9 +79,6 @@ func newMitmTcpHandler(
 		// which the engine intercepts and filters. Mirrors the fake-DNS /
 		// force-port-53 approach already used in WireGuard mode.
 		if flow.serverPort == 853 {
-			if c := relayDiagCount.Add(1); c <= 20 {
-				logf("[TcpStack] closing DoT (port 853) uid=%d %s → force plaintext DNS", uid, flow.serverIP)
-			}
 			return
 		}
 
@@ -179,7 +182,6 @@ func newMitmUdpHandler(filter *MitmFilter, uidr UIDResolver, protectFn func(fd i
 		if flow.serverPort == 443 && filter != nil && filter.HasAllowedUIDs() {
 			uid := resolveFlowUID(uidr, ProtocolUDP, flow)
 			if uid != UIDUnknown && filter.IsUIDAllowed(uid) {
-				logf("[TcpStack] drop QUIC (UDP 443) uid=%d %s → force TCP TLS for MITM", uid, flow.serverIP)
 				_ = conn.Close()
 				return
 			}
@@ -438,23 +440,12 @@ func dialUpstream(flow flowID, hostname string, blocker adBlockChecker, protectF
 func relayDirectFromFlow(clientConn net.Conn, flow flowID, blocker adBlockChecker, protectFn func(fd int) bool) {
 	remote, err := dialUpstream(flow, "", blocker, protectFn)
 	if err != nil {
-		if c := relayDiagCount.Add(1); c <= 20 {
-			logf("[TcpStack] passthrough #%d DIAL FAILED %s:%d: %v", c, flow.serverIP, flow.serverPort, err)
-		}
 		return
 	}
 	defer remote.Close()
 
-	if c := relayDiagCount.Add(1); c <= 20 {
-		logf("[TcpStack] passthrough #%d relaying %s:%d (dial ok)", c, flow.serverIP, flow.serverPort)
-	}
 	bidiCopyFlow(clientConn, remote)
 }
-
-// relayDiagCount bounds the volume of passthrough-relay diagnostic logs
-// so we can confirm on-device whether general (non-MITM) TCP flows reach
-// the stack and dial out, without flooding logcat in steady state.
-var relayDiagCount atomic.Int64
 
 // relayDirectPeeked dials the destination and writes the peeked bytes
 // to it first, then pipes bidirectionally. Used after peek+classify

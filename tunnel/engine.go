@@ -59,6 +59,16 @@ type AppResolver interface {
 	ResolveApp(sourcePort int, sourceIP []byte, destIP []byte, destPort int) string
 }
 
+// AppUidResolver maps an Android UID → package name (Kotlin-side, via
+// PackageManager.getPackagesForUid). The UID comes from
+// getConnectionOwnerUid. Unlike AppResolver it takes only an int (no
+// []byte), so it is safe to call from the concurrent full-tunnel flow hot
+// path — passing Go []byte to the gomobile JNI there panics under Go's
+// cgocheck ("Go pointer to unpinned Go pointer").
+type AppUidResolver interface {
+	PackageForUid(uid int) string
+}
+
 // SocketProtector is the interface for protecting sockets from VPN routing loop.
 // Implemented in Kotlin via VpnService.protect().
 type SocketProtector interface {
@@ -80,6 +90,7 @@ type Engine struct {
 	domainChecker   DomainChecker
 	firewallChecker FirewallChecker
 	appResolver     AppResolver
+	appUidResolver  AppUidResolver
 
 	adTries   []*MmapTrie
 	adTrieIDs []string
@@ -111,11 +122,20 @@ type Engine struct {
 	tcpStackPipe atomic.Pointer[packetPipe]
 	useTcpStack  atomic.Bool
 
+	// quicDrop: when true, browser QUIC (UDP 443) is dropped to force
+	// HTTP/3 traffic onto TCP TLS where the MITM can filter it. This gives
+	// maximum in-page filtering coverage but makes some sites load
+	// partially (browsers retry QUIC before falling back). When false
+	// (default), QUIC is relayed so pages load fully/smoothly; DNS-level
+	// ad-blocking still applies. Toggled from the UI via SetFilterHttp3.
+	quicDrop atomic.Bool
+
 	// Stack-mode MITM state (Phase D). When both are non-nil, the stack
 	// uses the MITM TCP handler; otherwise the Phase C direct-dial
 	// passthrough handler is used.
 	stackCertMgr    *CertManager
 	stackMitmFilter *MitmFilter
+	certDir         string // persistent dir (for CA + goroutine-dump diagnostics)
 
 	// UID resolver — supplied by Kotlin. When nil, flow-level UID lookup
 	// falls back to UIDUnknown. Stored on the engine so both the stack
@@ -126,6 +146,11 @@ type Engine struct {
 	// Handlers that dial outbound (direct flows, resolver fallbacks)
 	// use it to ensure the socket bypasses the VPN.
 	protectFn func(fd int) bool
+
+	// fullTunnelDone is created by StartFull and closed by Stop to unblock
+	// the full-network engine loop. Nil in the legacy DNS-only / WireGuard
+	// modes (StartFull is a separate, isolated data path — see fulltunnel.go).
+	fullTunnelDone chan struct{}
 
 	// Standalone Servers
 	standaloneUdp *dns.Server
@@ -277,6 +302,12 @@ func (e *Engine) SetFirewallChecker(checker FirewallChecker) {
 // SetAppResolver sets the Kotlin-side app name resolver for logging who made the request.
 func (e *Engine) SetAppResolver(resolver AppResolver) {
 	e.appResolver = resolver
+}
+
+// SetAppUidResolver sets the Kotlin-side UID→package resolver used for
+// full-tunnel per-app DNS attribution and connection logging.
+func (e *Engine) SetAppUidResolver(resolver AppUidResolver) {
+	e.appUidResolver = resolver
 }
 
 // SetLogCallback sets the callback for DNS query events.
@@ -492,6 +523,10 @@ func (e *Engine) Stop() {
 	e.tcpStack = nil
 	pipe := e.tcpStackPipe.Swap(nil)
 
+	// Unblock the full-network engine loop (StartFull), if running.
+	fullDone := e.fullTunnelDone
+	e.fullTunnelDone = nil
+
 	// Close TUN, clear caches — all while locked
 	if e.tunFile != nil {
 		e.tunFile.Close()
@@ -569,6 +604,9 @@ func (e *Engine) Stop() {
 	if pipe != nil {
 		pipe.Close()
 	}
+	if fullDone != nil {
+		close(fullDone)
+	}
 	if stack != nil {
 		stack.Stop()
 	}
@@ -595,6 +633,13 @@ func (e *Engine) GetStats() string {
 
 // ServeDNS handles incoming DNS queries directly from a socket (no TUN fd).
 func (e *Engine) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+	e.serveDNS(w, r, "")
+}
+
+// serveDNS is the implementation. appOverride, when non-empty, is used as
+// the logged app name (full-tunnel passes the UID-resolved package here so
+// DNS is attributed to the real app instead of the root-mode "RootProxy").
+func (e *Engine) serveDNS(w dns.ResponseWriter, r *dns.Msg, appOverride string) {
 	startTime := time.Now()
 	if len(r.Question) == 0 {
 		return
@@ -607,7 +652,9 @@ func (e *Engine) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	// Try to resolve the real app name from the source port of the incoming connection.
 	// iptables REDIRECT preserves the original source port, so we can look up the UID
 	// in /proc/net/udp by matching that port.
-	if e.appResolver != nil {
+	if appOverride != "" {
+		appName = appOverride
+	} else if e.appResolver != nil {
 		if addr := w.RemoteAddr(); addr != nil {
 			srcPort := 0
 			srcIP := net.IPv4(127, 0, 0, 1)
@@ -1058,6 +1105,7 @@ func (e *Engine) StartStackMitm(certDir string) string {
 		e.stackMitmFilter = NewMitmFilter()
 	}
 	filter := e.stackMitmFilter
+	e.certDir = certDir
 	e.mu.Unlock()
 
 	// Persist the auto-blacklist alongside the CA so cert-pinned / EV
@@ -1142,15 +1190,6 @@ func (e *Engine) startTcpStackParallel() error {
 		stack.SetUdpHandler(newProtectedUdpHandler(uidr, protectFn))
 	}
 
-	// Reset the interceptor's per-session diagnostic counters so the
-	// "pushed packet #N to stack" / "pipe nil" logs fire fresh on every
-	// (re)start — essential for diagnosing whether non-DNS traffic
-	// actually reaches the stack under full-tunnel routing.
-	e.interceptor.stackPacketsPushed.Store(0)
-	e.interceptor.stackPipeNilDrops.Store(0)
-	logf("TcpIpStack: starting parallel path (mtu=%d, mitm=%t, protectFn=%t)",
-		mtu, certMgr != nil && filter != nil, protectFn != nil)
-
 	if err := stack.Start(pipe, mtu); err != nil {
 		e.mu.Lock()
 		e.tcpStack = nil
@@ -1199,9 +1238,6 @@ func (e *Engine) runTcpStackOutboundWriter(p *packetPipe) {
 			return
 		}
 		written++
-		if written <= 10 {
-			logf("TcpIpStack: outbound→TUN write #%d (size=%d) [response path alive]", written, len(pkt))
-		}
 	}
 }
 

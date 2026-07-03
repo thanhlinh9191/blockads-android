@@ -72,6 +72,7 @@ fun SettingsScreen(
     val routingMode by viewModel.routingMode.collectAsStateWithLifecycle()
     val dnsResponseType by viewModel.dnsResponseType.collectAsStateWithLifecycle()
     val safeSearchEnabled by viewModel.safeSearchEnabled.collectAsStateWithLifecycle()
+    val fullTunnelEnabled by viewModel.fullTunnelEnabled.collectAsStateWithLifecycle()
     val youtubeRestrictedMode by viewModel.youtubeRestrictedMode.collectAsStateWithLifecycle()
     val dailySummaryEnabled by viewModel.dailySummaryEnabled.collectAsStateWithLifecycle()
     val milestoneNotificationsEnabled by viewModel.milestoneNotificationsEnabled.collectAsStateWithLifecycle()
@@ -121,9 +122,11 @@ fun SettingsScreen(
                 networkSwitchDelaySec = networkSwitchDelaySec,
                 safeSearchEnabled = safeSearchEnabled,
                 youtubeRestrictedMode = youtubeRestrictedMode,
+                fullTunnelEnabled = fullTunnelEnabled,
                 dnsResponseType = dnsResponseType,
                 upstreamDNS = upstreamDNS,
                 onSetAutoReconnect = { viewModel.setAutoReconnect(it) },
+                onSetFullTunnelEnabled = { viewModel.setFullTunnelEnabled(it) },
                 onSetRoutingMode = { viewModel.setRoutingModeEnabled(it) },
                 onSetNetworkSwitchDelayEnabled = { viewModel.setNetworkSwitchDelayEnabled(it) },
                 onSetNetworkSwitchDelaySec = { viewModel.setNetworkSwitchDelaySec(it) },

@@ -41,7 +41,6 @@ func newProtectedTcpHandler(uidr UIDResolver, protectFn func(fd int) bool) TcpFl
 		// of stalling on a dial to the fake DNS server. See the matching
 		// gate in newMitmTcpHandler.
 		if flow.serverPort == 853 {
-			logf("[TcpStack] closing DoT (port 853) uid=%d %s → force plaintext DNS", uid, flow.serverIP)
 			return
 		}
 

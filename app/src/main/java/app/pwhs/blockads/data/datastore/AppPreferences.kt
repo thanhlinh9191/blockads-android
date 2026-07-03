@@ -59,6 +59,8 @@ class AppPreferences(private val context: Context) {
         private val KEY_WG_PROFILES_JSON = stringPreferencesKey("wg_profiles_json")
         private val KEY_WG_ACTIVE_PROFILE_ID = stringPreferencesKey("wg_active_profile_id")
         private val KEY_HTTPS_FILTERING_ENABLED = booleanPreferencesKey("https_filtering_enabled")
+        private val KEY_FILTER_HTTP3 = booleanPreferencesKey("filter_http3")
+        private val KEY_FULL_TUNNEL_ENABLED = booleanPreferencesKey("full_tunnel_enabled")
         private val KEY_SELECTED_BROWSERS = stringSetPreferencesKey("selected_browsers")
         private val KEY_NETWORK_SWITCH_DELAY_ENABLED = booleanPreferencesKey("network_switch_delay_enabled")
         private val KEY_NETWORK_SWITCH_DELAY_SEC = intPreferencesKey("network_switch_delay_sec")
@@ -686,6 +688,43 @@ class AppPreferences(private val context: Context) {
 
     suspend fun getHttpsFilteringEnabledSnapshot(): Boolean {
         return context.dataStore.data.first()[KEY_HTTPS_FILTERING_ENABLED] ?: false
+    }
+
+    // HTTP/3 (QUIC) filtering. Default OFF: QUIC is relayed so pages load
+    // fully/smoothly (DNS ad-blocking still applies). ON: browser QUIC is
+    // dropped to force filterable TCP TLS — more in-page filtering but some
+    // sites may load partially.
+    val filterHttp3: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_FILTER_HTTP3] ?: false
+    }
+
+    suspend fun setFilterHttp3(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_FILTER_HTTP3] = enabled
+        }
+    }
+
+    suspend fun getFilterHttp3Snapshot(): Boolean {
+        return context.dataStore.data.first()[KEY_FILTER_HTTP3] ?: false
+    }
+
+    // Full-tunnel mode. Off (default) = split-tunnel (DNS-only, legacy
+    // engine). On = full-network capture via the direct-TUN engine
+    // (StartFull): all apps' traffic terminates in the userspace stack
+    // (DNS filter + per-app firewall + passthrough; HTTPS MITM layered on
+    // top when HTTPS filtering is also enabled).
+    val fullTunnelEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_FULL_TUNNEL_ENABLED] ?: false
+    }
+
+    suspend fun setFullTunnelEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_FULL_TUNNEL_ENABLED] = enabled
+        }
+    }
+
+    suspend fun getFullTunnelEnabledSnapshot(): Boolean {
+        return context.dataStore.data.first()[KEY_FULL_TUNNEL_ENABLED] ?: false
     }
 
     suspend fun setSelectedBrowsers(packages: Set<String>) {

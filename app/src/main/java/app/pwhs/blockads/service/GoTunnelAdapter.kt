@@ -158,6 +158,23 @@ class GoTunnelAdapter(
     }
 
     /**
+     * UID→package resolver for full-tunnel per-app attribution + connection
+     * logging. Takes only an int (no byte[]), so it's safe from Go's
+     * concurrent flow hot path (unlike [AppResolver], whose byte[] args
+     * panic under cgocheck). Returns the package name; the log callback maps
+     * it to a friendly label.
+     */
+    private fun setupAppUidResolver() {
+        engine.setAppUidResolver(tunnel.AppUidResolver { uid ->
+            try {
+                context.packageManager.getPackagesForUid(uid.toInt())?.firstOrNull() ?: ""
+            } catch (e: Exception) {
+                ""
+            }
+        })
+    }
+
+    /**
      * Set up the app resolver to get the AppName for every DNS query (used for logging).
      * Uses [AppNameResolver] to map source port → UID → app name.
      */
@@ -256,6 +273,8 @@ class GoTunnelAdapter(
         httpsFilteringEnabled: Boolean = false,
         selectedBrowsers: Set<String> = emptySet(),
         certDir: String = "",
+        filterHttp3: Boolean = false,
+        fullTunnelEnabled: Boolean = false,
         socketProtector: ((Int) -> Boolean)? = null
     ) {
         if (isRunning) return
@@ -282,6 +301,7 @@ class GoTunnelAdapter(
                 engine.setUseTcpStack(true)
                 engine.startStackMitm(certDir)
                 engine.setMitmAllowedUIDs(uids)
+                engine.setFilterHttp3(filterHttp3)
 
                 // Load curated passthrough domains (banking, payment,
                 // gov, secure messaging, etc.) from assets so cert-
@@ -307,6 +327,7 @@ class GoTunnelAdapter(
         setupFirewallChecker()
         setupLogCallback()
         setupUidResolver()
+        setupAppUidResolver()
 
         // Give Go the paths to the Mmap logs so it can read them natively for max speed
         updateTries()
@@ -320,9 +341,25 @@ class GoTunnelAdapter(
             socketProtector?.invoke(fd.toInt()) ?: false
         }
 
-        // Start the Go engine (this blocks the thread)
-        // WireGuard setup happens atomically inside Go before any packets are read.
-        engine.start(fd.toLong(), protector, wgConfigJson)
+        // Start the Go engine (this blocks the thread).
+        //
+        // Engine selection is by TUNNEL MODE, not by HTTPS:
+        //   • Full-tunnel (explicit toggle) OR HTTPS filtering → StartFull
+        //     (dedicated direct-TUN engine; gVisor reads the TUN directly,
+        //     no DnsInterceptor/packetPipe bridge → no under-load wedge).
+        //     HTTPS filtering merely adds the MITM layer inside it
+        //     (startStackMitm above); without it, full-tunnel still does
+        //     all-app DNS filter + per-app firewall + protected passthrough.
+        //   • Otherwise → legacy Start (split-tunnel DNS-only / WireGuard).
+        val useFullTunnel = fullTunnelEnabled || (httpsFilteringEnabled && certDir.isNotEmpty())
+        if (useFullTunnel) {
+            Timber.d("Starting Go tunnel engine in FULL-TUNNEL mode (fd=$fd, mitm=${httpsFilteringEnabled && certDir.isNotEmpty()})")
+            engine.startFull(fd.toLong(), protector)
+        } else {
+            // Legacy split-tunnel (DNS-only) / WireGuard path — unchanged.
+            // WireGuard setup happens atomically inside Go before any packets are read.
+            engine.start(fd.toLong(), protector, wgConfigJson)
+        }
     }
 
     /**
